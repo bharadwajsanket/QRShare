@@ -26,20 +26,20 @@ cargo build
 
 ## Step 2: Version Updates
 
-Ensure that version identifiers are bumped consistently across all components to refer to the target release version (e.g. `1.5.4`):
+Ensure that version identifiers are bumped consistently across all components to refer to the target release version (e.g. `2.5.4`):
 
 - **Cargo.toml**: Update the package version:
   ```toml
   [package]
-  version = "1.5.4"
+  version = "2.5.4"
   ```
 - **install.sh**: Set the fallback version string:
   ```bash
-  LATEST_TAG="v1.5.4"
+  LATEST_TAG="v2.5.4"
   ```
 - **install.ps1**: Set the fallback version string:
   ```powershell
-  $latestTag = "v1.5.4"
+  $latestTag = "v2.5.4"
   ```
 - **CHANGELOG.md**: Add an entry under the version and date headers following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
@@ -52,21 +52,21 @@ The workflow `.github/workflows/release.yml` triggers automatically **only** whe
 1. **Commit and Push changes**:
    ```bash
    git add Cargo.toml install.sh install.ps1 CHANGELOG.md
-   git commit -m "chore: prepare release v1.5.4"
+   git commit -m "chore: prepare release v2.5.4"
    git push origin main
    ```
 
 2. **Create and Push the Release Tag**:
    ```bash
-   git tag -a v1.5.4 -m "Release v1.5.4"
-   git push origin v1.5.4
+   git tag -a v2.5.4 -m "Release v2.5.4"
+   git push origin v2.5.4
    ```
 
 3. **Draft and Publish the Release on GitHub**:
    - Go to the GitHub repository page.
-   - Click on **Releases** -> **Draft a new release**.
-   - Select the tag `v1.5.4`.
-   - Write the release title (e.g., `Release v1.5.4`).
+   - Click on **Releases** → **Draft a new release**.
+   - Select the tag `v2.5.4`.
+   - Write the release title (e.g., `Release v2.5.4`).
    - Paste the release notes from `CHANGELOG.md`.
    - Click **Publish release**.
 

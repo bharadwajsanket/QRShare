@@ -120,7 +120,7 @@ start_spinner "Fetching latest version metadata..."
 LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || true)
 
 if [ -z "$LATEST_TAG" ]; then
-    LATEST_TAG="v1.5.4"
+    LATEST_TAG="v2.5.4"
     stop_spinner 0 "Connection to GitHub API failed. Defaulting to: $LATEST_TAG" ""
 else
     stop_spinner 0 "Target version resolved: $LATEST_TAG" ""

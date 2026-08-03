@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "qrshare"
-version = "1.5.4"
+version = "2.5.4"
 dependencies = [
  "axum",
  "axum-extra",

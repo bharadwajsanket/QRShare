@@ -7,6 +7,40 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.5.4] — 2026-08-03
+
+### Added
+- Completely redesigned browser interface — premium minimal aesthetic inspired by Apple, Arc, Linear, and Vercel
+- Automatic Light & Dark theme support via `prefers-color-scheme` — zero user interaction required
+- Inter typeface loaded via Google Fonts with system font fallback for offline environments
+- CSS design token system (`common.css`) — unified color palette, spacing, and animation variables for all pages
+- Dedicated `file_icon_svg()` helper in `templates.rs` — per-MIME-category stroke SVG icons (image, video, audio, document, archive, code, generic)
+- Shared `head()` function in `templates.rs` — eliminates repeated boilerplate across page templates
+- Metadata chips on the file page — type and size rendered as compact inline badges
+- Lock icon on the password page — purple accent circle with padlock SVG
+- Friendly error titles and per-status icons in `error.rs` — "Share Expired" (403), "Not Found" (404), "Access Denied" (401), "Invalid Request" (400)
+- HTTP status code shown as a small muted badge on error pages (no longer the primary heading)
+- Subtle glass card effect (`backdrop-filter: blur(20px)`) applied only in dark mode, clean white in light mode
+- Redirect page redesigned with CSS-only spinner and monospace URL pill
+- `install.ps1` — new Windows PowerShell installer with architecture detection, SHA256 verification, and User PATH configuration
+
+### Changed
+- Primary button color changed from neutral black/white to `#7C3AED` (Violet-600) — consistent purple accent across all interactive elements
+- Card entry animation tightened to 180ms `cubic-bezier(0.16, 1, 0.3, 1)` spring easing
+- Button hover state changed to `translateY(-1px)` lift with accent glow instead of scale-down
+- Preview area in the file page now renders edge-to-edge (no padding) for images and video
+- Password page copy rewritten: "Protected Share" / "Enter the password to access this file."
+- Error page copy rewritten to be receiver-friendly — no raw HTTP codes, no stack traces
+- Footer copy updated from attribution to "Shared with QRShare" linking the repository
+
+### Fixed
+- `install.sh` fallback version bumped to `v2.5.4`
+- `install.ps1` fallback version bumped to `v2.5.4`
+- Redundant `&` borrows in `format!` arguments removed (Clippy `useless_borrows_in_formatting`)
+- Hex color literals (`#09090B`, `#FAFAFA`) moved out of `r#"..."#` raw strings to avoid Rust 2021 prefix parsing errors
+
+---
+
 ## [1.5.4] — 2026-07-30
 
 ### Added
