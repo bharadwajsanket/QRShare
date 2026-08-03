@@ -1,29 +1,32 @@
 # Release Guide (QRShare)
 
-This guide documents the manual release verification, compilation, packaging, and publishing steps for QRShare.
+This guide documents the manual verification and release flow for QRShare maintainers. All platform asset builds, packaging, checksum generation, and release attachments are automated via GitHub Actions when a release is published.
 
 ---
 
-## 1. Pre-Release Verification
+## Step 1: Pre-Release Verification
 
-Always check formatting, static analysis, and test suites prior to triggering a release flow:
+Always check formatting, static analysis, and execute the test suites locally prior to triggering a release flow:
 
 ```bash
-# Verify formatting
+# Verify formatting conforms to style guidelines
 cargo fmt --check
 
-# Verify lints
+# Verify code linting
 cargo clippy --all-targets --all-features -- -D warnings
 
 # Execute test suite
 cargo test
+
+# Build debug binary to verify compilation
+cargo build
 ```
 
 ---
 
-## 2. Version Updates
+## Step 2: Version Updates
 
-Ensure that version identifiers are bumped consistently across all components to refer to the release version (e.g. `1.5.4`):
+Ensure that version identifiers are bumped consistently across all components to refer to the target release version (e.g. `1.5.4`):
 
 - **Cargo.toml**: Update the package version:
   ```toml
@@ -42,78 +45,36 @@ Ensure that version identifiers are bumped consistently across all components to
 
 ---
 
-## 3. Compiling Release Assets
+## Step 3: Triggering automated asset builds
 
-Compile statically linked binaries for all target platforms.
+The workflow `.github/workflows/release.yml` triggers automatically **only** when a Release is manually published on GitHub.
 
-### macOS Build
-```bash
-# Apple Silicon (ARM64)
-cargo build --release --target aarch64-apple-darwin
-tar -czf qrshare-macos-arm64.tar.gz -C target/aarch64-apple-darwin/release qrshare
+1. **Commit and Push changes**:
+   ```bash
+   git add Cargo.toml install.sh install.ps1 CHANGELOG.md
+   git commit -m "chore: prepare release v1.5.4"
+   git push origin main
+   ```
 
-# Intel (x86_64)
-cargo build --release --target x86_64-apple-darwin
-tar -czf qrshare-macos-x86_64.tar.gz -C target/x86_64-apple-darwin/release qrshare
-```
-
-### Linux Build (Statically Linked using musl)
-Requires cross-compilation toolchains or `cargo-zigbuild`:
-```bash
-# Linux x86_64
-cargo zigbuild --release --target x86_64-unknown-linux-musl
-tar -czf qrshare-linux-x86_64.tar.gz -C target/x86_64-unknown-linux-musl/release qrshare
-
-# Linux ARM64
-cargo zigbuild --release --target aarch64-unknown-linux-musl
-tar -czf qrshare-linux-arm64.tar.gz -C target/aarch64-unknown-linux-musl/release qrshare
-
-# Linux ARMv7
-cargo zigbuild --release --target armv7-unknown-linux-musleabihf
-tar -czf qrshare-linux-armv7.tar.gz -C target/armv7-unknown-linux-musleabihf/release qrshare
-```
-
-### Windows Build
-```bash
-# Windows x86_64
-cargo build --release --target x86_64-pc-windows-msvc
-Compress-Archive -Path target/x86_64-pc-windows-msvc/release/qrshare.exe -DestinationPath qrshare-windows-x86_64.zip
-
-# Windows ARM64
-cargo build --release --target aarch64-pc-windows-msvc
-Compress-Archive -Path target/aarch64-pc-windows-msvc/release/qrshare.exe -DestinationPath qrshare-windows-arm64.zip
-```
-
----
-
-## 4. Generate Checksums
-
-Generate SHA256 checksum verification files for the built release assets:
-
-```bash
-# macOS/Linux
-sha256sum qrshare-* > SHA256SUMS
-
-# Windows (PowerShell)
-Get-FileHash -Path qrshare-* -Algorithm SHA256 | Format-Table Hash, Path
-```
-
----
-
-## 5. Publishing
-
-### Create GitHub Release
-1. Tag the release commit:
+2. **Create and Push the Release Tag**:
    ```bash
    git tag -a v1.5.4 -m "Release v1.5.4"
    git push origin v1.5.4
    ```
-2. Create a GitHub Release in the repository corresponding to the tag.
-3. Upload all `.tar.gz`, `.zip` archives, and the `SHA256SUMS` checksum verification file.
-4. Copy description notes from `CHANGELOG.md`.
 
-### Publish to Crates.io
-Verify credentials and publish to crates.io:
-```bash
-cargo publish
-```
+3. **Draft and Publish the Release on GitHub**:
+   - Go to the GitHub repository page.
+   - Click on **Releases** -> **Draft a new release**.
+   - Select the tag `v1.5.4`.
+   - Write the release title (e.g., `Release v1.5.4`).
+   - Paste the release notes from `CHANGELOG.md`.
+   - Click **Publish release**.
+
+4. **GitHub Actions Automation**:
+   - Once published, GitHub Actions starts the asset builder job.
+   - The job compiles all macOS, Linux, and Windows targets, verifies their binary outputs, packages them with `README.md` and `LICENSE`, calculates unified SHA256 checksums, and uploads them directly to the published release automatically.
+
+5. **Publish to Crates.io**:
+   ```bash
+   cargo publish
+   ```
