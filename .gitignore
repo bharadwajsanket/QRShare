@@ -1,0 +1,26 @@
+# Cargo Build Artifacts
+/target/
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+
+# Editors & IDEs
+.vscode/
+.idea/
+*.rs.bk
+*.swp
+*.swo
+
+# Local Environmental Configuration
+.env
+.env.local
+
+# Release Artifacts
+qrshare-*.tar.gz
+qrshare-*.zip
+release_notes.md
+SHA256SUMS
+/release-assets/
+/release/
+/dist/
