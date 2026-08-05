@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::collections::HashSet;
-use std::io::{Write, IsTerminal};
+use std::io::{IsTerminal, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -43,7 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if let Ok(text) = cb.get_text() {
                     ShareTarget::Text(text)
                 } else {
-                    eprintln!("Error: Clipboard does not contain supported content (text or image).");
+                    eprintln!(
+                        "Error: Clipboard does not contain supported content (text or image)."
+                    );
                     std::process::exit(1);
                 }
             }

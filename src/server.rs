@@ -360,7 +360,10 @@ async fn get_root(
             .into_response(),
         ShareTarget::Text(text) => {
             let (preview_html, is_code) = render_text_preview(text);
-            let download_filename = state.session_time.format("qrshare-%Y-%m-%d-%H%M.txt").to_string();
+            let download_filename = state
+                .session_time
+                .format("qrshare-%Y-%m-%d-%H%M.txt")
+                .to_string();
             (
                 jar,
                 Html(templates::render_text_page(
@@ -555,7 +558,10 @@ async fn get_raw(
 
     if let ShareTarget::Text(text) = &state.target {
         let is_download = is_actual_download(&req, query.download.is_some());
-        let filename = state.session_time.format("qrshare-%Y-%m-%d-%H%M.txt").to_string();
+        let filename = state
+            .session_time
+            .format("qrshare-%Y-%m-%d-%H%M.txt")
+            .to_string();
 
         if is_download {
             println!("⬇ Download started: {}", filename);
@@ -568,10 +574,7 @@ async fn get_raw(
             .into_response();
 
         if query.download.is_some() {
-            let header_val = format!(
-                "attachment; filename=\"{}\"",
-                filename
-            );
+            let header_val = format!("attachment; filename=\"{}\"", filename);
             if let Ok(h_val) = header::HeaderValue::from_str(&header_val) {
                 res.headers_mut().insert(header::CONTENT_DISPOSITION, h_val);
             }
@@ -599,7 +602,10 @@ async fn get_raw(
 
     if let ShareTarget::Image(bytes) = &state.target {
         let is_download = is_actual_download(&req, query.download.is_some());
-        let filename = state.session_time.format("qrshare-clip-%Y-%m-%d-%H%M.png").to_string();
+        let filename = state
+            .session_time
+            .format("qrshare-clip-%Y-%m-%d-%H%M.png")
+            .to_string();
 
         if is_download {
             println!("⬇ Download started: {}", filename);
@@ -612,10 +618,7 @@ async fn get_raw(
             .into_response();
 
         if query.download.is_some() {
-            let header_val = format!(
-                "attachment; filename=\"{}\"",
-                filename
-            );
+            let header_val = format!("attachment; filename=\"{}\"", filename);
             if let Ok(h_val) = header::HeaderValue::from_str(&header_val) {
                 res.headers_mut().insert(header::CONTENT_DISPOSITION, h_val);
             }
@@ -995,7 +998,10 @@ fn build_breadcrumbs(relative_path: &str) -> String {
     html
 }
 
-async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<(String, usize), AppError> {
+async fn compile_directory_items(
+    base_dir: &StdPath,
+    subpath: &str,
+) -> Result<(String, usize), AppError> {
     let target_dir = safe_resolve_path(base_dir, subpath)?;
     let mut html = String::new();
 
@@ -1122,17 +1128,19 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<(S
 
 fn is_markdown(text: &str) -> bool {
     let t = text.trim();
-    t.starts_with("# ") 
-        || t.contains("\n# ") 
-        || t.contains("\n- ") 
-        || t.contains("\n* ") 
-        || t.contains("**") 
+    t.starts_with("# ")
+        || t.contains("\n# ")
+        || t.contains("\n- ")
+        || t.contains("\n* ")
+        || t.contains("**")
         || t.contains("```")
 }
 
 fn detect_language(text: &str) -> Option<&'static str> {
     let text = text.trim();
-    if (text.starts_with('{') && text.ends_with('}')) || (text.starts_with('[') && text.ends_with(']')) {
+    if (text.starts_with('{') && text.ends_with('}'))
+        || (text.starts_with('[') && text.ends_with(']'))
+    {
         return Some("json");
     }
     if text.contains("def ") && text.contains(':') {
@@ -1141,13 +1149,19 @@ fn detect_language(text: &str) -> Option<&'static str> {
     if text.contains("fn main(") || text.contains("pub fn ") || text.contains("let mut ") {
         return Some("rust");
     }
-    if text.contains("function ") || (text.contains("const ") && text.contains(" = ") && text.contains(';')) {
+    if text.contains("function ")
+        || (text.contains("const ") && text.contains(" = ") && text.contains(';'))
+    {
         return Some("javascript");
     }
     if text.contains("import ") && (text.contains("from '") || text.contains("from \"")) {
         return Some("typescript");
     }
-    if text.contains("class ") || text.contains("struct ") || text.contains("import ") || text.contains("#include <") {
+    if text.contains("class ")
+        || text.contains("struct ")
+        || text.contains("import ")
+        || text.contains("#include <")
+    {
         if text.contains("#include <") {
             return Some("cpp");
         }
@@ -1158,13 +1172,11 @@ fn detect_language(text: &str) -> Option<&'static str> {
 
 fn render_text_preview(text: &str) -> (String, bool) {
     if is_markdown(text) {
-        let parser = pulldown_cmark::Parser::new(text).map(|event| {
-            match event {
-                pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
-                    pulldown_cmark::Event::Text(html)
-                }
-                other => other,
+        let parser = pulldown_cmark::Parser::new(text).map(|event| match event {
+            pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
+                pulldown_cmark::Event::Text(html)
             }
+            other => other,
         });
         let mut html_output = String::new();
         pulldown_cmark::html::push_html(&mut html_output, parser);
@@ -1302,13 +1314,11 @@ async fn generate_preview_html(
         ))
     } else if mime.contains("markdown") {
         let content = tokio::fs::read_to_string(path).await?;
-        let parser = pulldown_cmark::Parser::new(&content).map(|event| {
-            match event {
-                pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
-                    pulldown_cmark::Event::Text(html)
-                }
-                other => other,
+        let parser = pulldown_cmark::Parser::new(&content).map(|event| match event {
+            pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
+                pulldown_cmark::Event::Text(html)
             }
+            other => other,
         });
         let mut html_output = String::new();
         pulldown_cmark::html::push_html(&mut html_output, parser);
@@ -1824,7 +1834,9 @@ mod tests {
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
         let body_str = String::from_utf8_lossy(&body);
         assert!(body_str.contains("Shared Text"));
         assert!(body_str.contains("Hello, world!"));
@@ -1833,7 +1845,9 @@ mod tests {
         let req_raw = Request::builder().uri("/raw").body(Body::empty()).unwrap();
         let response_raw = app.oneshot(req_raw).await.unwrap();
         assert_eq!(response_raw.status(), StatusCode::OK);
-        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024).await.unwrap();
+        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024)
+            .await
+            .unwrap();
         assert_eq!(String::from_utf8_lossy(&body_raw), "Hello, world!");
     }
 
@@ -1859,7 +1873,9 @@ mod tests {
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
         let body_str = String::from_utf8_lossy(&body);
         if status != StatusCode::OK {
             println!("TEST STATUS CODE: {:?}", status);
@@ -1893,7 +1909,9 @@ mod tests {
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
         let body_str = String::from_utf8_lossy(&body);
         assert!(body_str.contains("Shared Image"));
         assert!(body_str.contains("<img src=\"/raw\""));
@@ -1901,7 +1919,9 @@ mod tests {
         let req_raw = Request::builder().uri("/raw").body(Body::empty()).unwrap();
         let response_raw = app.oneshot(req_raw).await.unwrap();
         assert_eq!(response_raw.status(), StatusCode::OK);
-        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024).await.unwrap();
+        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024)
+            .await
+            .unwrap();
         assert_eq!(body_raw.to_vec(), fake_png);
     }
 
@@ -1911,6 +1931,9 @@ mod tests {
         let (preview_html, _) = render_text_preview(text_with_script);
         // Script should be converted to text or escaped, and not rendered as a raw executable element!
         assert!(!preview_html.contains("<script>alert(1)</script>"));
-        assert!(preview_html.contains("&lt;script&gt;alert(1)&lt;/script&gt;") || preview_html.contains("alert(1)"));
+        assert!(
+            preview_html.contains("&lt;script&gt;alert(1)&lt;/script&gt;")
+                || preview_html.contains("alert(1)")
+        );
     }
 }
