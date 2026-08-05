@@ -9,8 +9,16 @@ use clap::Parser;
 )]
 pub struct Cli {
     /// File, directory, or URL to share
-    #[arg(required = true)]
-    pub target: String,
+    #[arg(required = false)]
+    pub target: Option<String>,
+
+    /// Share plain text snippet directly
+    #[arg(long, short = 't', help_heading = "Sharing Options")]
+    pub text: Option<String>,
+
+    /// Share current clipboard content (automatically selects text or image)
+    #[arg(long, short = 'c', help_heading = "Sharing Options")]
+    pub clipboard: bool,
 
     /// Password to protect the shared resource. If passed without a value, you will be prompted securely.
     #[arg(

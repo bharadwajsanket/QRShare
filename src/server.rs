@@ -26,6 +26,8 @@ pub enum ShareTarget {
     File(PathBuf),
     Folder(PathBuf),
     Url(String),
+    Text(String),
+    Image(Vec<u8>),
 }
 
 pub struct ServerState {
@@ -35,6 +37,8 @@ pub struct ServerState {
     pub limit: Option<usize>,
     pub active_downloads: Mutex<HashSet<String>>,
     pub expired: std::sync::atomic::AtomicBool,
+    pub session_time: chrono::DateTime<chrono::Local>,
+    pub expire_str: Option<String>,
 }
 
 struct TrackingBody {
@@ -331,12 +335,55 @@ async fn get_root(
         ShareTarget::Folder(_) => {
             println!("📱 {} connected", addr.ip());
         }
+        ShareTarget::Text(_) => {
+            println!("🔍 {} opened preview: Plain Text", addr.ip());
+        }
+        ShareTarget::Image(_) => {
+            println!("🔍 {} opened preview: Clipboard Image", addr.ip());
+        }
     }
 
     let (jar, _) = handle_visitor_cookie(&state, jar);
+    let downloads = state.active_downloads.lock().unwrap().len();
 
     let res = match &state.target {
-        ShareTarget::Url(url) => (jar, Html(templates::render_redirect_page(url))).into_response(),
+        ShareTarget::Url(url) => (
+            jar,
+            Html(templates::render_url_page(
+                url,
+                &state.session_time,
+                state.expire_str.as_deref(),
+                state.limit,
+                downloads,
+            )),
+        )
+            .into_response(),
+        ShareTarget::Text(text) => {
+            let (preview_html, is_code) = render_text_preview(text);
+            (
+                jar,
+                Html(templates::render_text_page(
+                    text,
+                    &preview_html,
+                    is_code,
+                    &state.session_time,
+                    state.expire_str.as_deref(),
+                    state.limit,
+                    downloads,
+                )),
+            )
+                .into_response()
+        }
+        ShareTarget::Image(_) => (
+            jar,
+            Html(templates::render_clipboard_image_page(
+                &state.session_time,
+                state.expire_str.as_deref(),
+                state.limit,
+                downloads,
+            )),
+        )
+            .into_response(),
         ShareTarget::File(path) => {
             let filename = path.file_name().unwrap_or_default().to_string_lossy();
             let size = tokio::fs::metadata(path).await?.len();
@@ -356,6 +403,10 @@ async fn get_root(
                     &preview,
                     is_code,
                     "/raw?download=1",
+                    &state.session_time,
+                    state.expire_str.as_deref(),
+                    state.limit,
+                    downloads,
                 )),
             )
                 .into_response()
@@ -372,6 +423,10 @@ async fn get_root(
                     &breadcrumbs,
                     &items,
                     "/zip",
+                    &state.session_time,
+                    state.expire_str.as_deref(),
+                    state.limit,
+                    downloads,
                 )),
             )
                 .into_response()
@@ -415,6 +470,8 @@ async fn get_subpath(
         println!("🔍 {} opened preview: {}", addr.ip(), filename);
     }
 
+    let downloads = state.active_downloads.lock().unwrap().len();
+
     let res = if resolved.is_dir() {
         let breadcrumbs = build_breadcrumbs(&subpath);
         let items = compile_directory_items(base_dir, &subpath).await?;
@@ -431,6 +488,10 @@ async fn get_subpath(
                 &breadcrumbs,
                 &items,
                 &zip_url,
+                &state.session_time,
+                state.expire_str.as_deref(),
+                state.limit,
+                downloads,
             )),
         )
             .into_response()
@@ -460,6 +521,10 @@ async fn get_subpath(
                 &preview,
                 is_code,
                 &download_url,
+                &state.session_time,
+                state.expire_str.as_deref(),
+                state.limit,
+                downloads,
             )),
         )
             .into_response()
@@ -484,11 +549,99 @@ async fn get_raw(
         return Err(AppError::Unauthorized("Access denied".to_string()));
     }
 
+    if let ShareTarget::Text(text) = &state.target {
+        let is_download = is_actual_download(&req, query.download.is_some());
+        let filename = state.session_time.format("qrshare-%Y-%m-%d-%H%M.txt").to_string();
+
+        if is_download {
+            println!("⬇ Download started: {}", filename);
+        }
+
+        let mut res = Response::builder()
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(Body::from(text.clone()))
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .into_response();
+
+        if query.download.is_some() {
+            let header_val = format!(
+                "attachment; filename=\"{}\"",
+                filename
+            );
+            if let Ok(h_val) = header::HeaderValue::from_str(&header_val) {
+                res.headers_mut().insert(header::CONTENT_DISPOSITION, h_val);
+            }
+        }
+
+        let session_id = if let Some(cookie) = jar.get("qrshare_session") {
+            cookie.value().to_string()
+        } else {
+            format!("anonymous-uuid-{}", uuid::Uuid::new_v4())
+        };
+
+        let content_length = Some(text.len() as u64);
+        let (parts, body) = res.into_parts();
+        let tracking_body = TrackingBody {
+            inner: body,
+            filename,
+            state,
+            session_id,
+            is_download,
+            content_length,
+            bytes_written: 0,
+        };
+        return Ok(Response::from_parts(parts, Body::new(tracking_body)));
+    }
+
+    if let ShareTarget::Image(bytes) = &state.target {
+        let is_download = is_actual_download(&req, query.download.is_some());
+        let filename = state.session_time.format("qrshare-clip-%Y-%m-%d-%H%M.png").to_string();
+
+        if is_download {
+            println!("⬇ Download started: {}", filename);
+        }
+
+        let mut res = Response::builder()
+            .header(header::CONTENT_TYPE, "image/png")
+            .body(Body::from(bytes.clone()))
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .into_response();
+
+        if query.download.is_some() {
+            let header_val = format!(
+                "attachment; filename=\"{}\"",
+                filename
+            );
+            if let Ok(h_val) = header::HeaderValue::from_str(&header_val) {
+                res.headers_mut().insert(header::CONTENT_DISPOSITION, h_val);
+            }
+        }
+
+        let session_id = if let Some(cookie) = jar.get("qrshare_session") {
+            cookie.value().to_string()
+        } else {
+            format!("anonymous-uuid-{}", uuid::Uuid::new_v4())
+        };
+
+        let content_length = Some(bytes.len() as u64);
+        let (parts, body) = res.into_parts();
+        let tracking_body = TrackingBody {
+            inner: body,
+            filename,
+            state,
+            session_id,
+            is_download,
+            content_length,
+            bytes_written: 0,
+        };
+        return Ok(Response::from_parts(parts, Body::new(tracking_body)));
+    }
+
     let path = match &state.target {
         ShareTarget::File(p) => p.clone(),
         _ => {
             return Err(AppError::BadRequest(
-                "Target is not a single file".to_string(),
+                "Target is not raw-compatible".to_string(),
             ))
         }
     };
@@ -959,6 +1112,73 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<St
     Ok(html)
 }
 
+fn is_markdown(text: &str) -> bool {
+    let t = text.trim();
+    t.starts_with("# ") 
+        || t.contains("\n# ") 
+        || t.contains("\n- ") 
+        || t.contains("\n* ") 
+        || t.contains("**") 
+        || t.contains("```")
+}
+
+fn detect_language(text: &str) -> Option<&'static str> {
+    let text = text.trim();
+    if (text.starts_with('{') && text.ends_with('}')) || (text.starts_with('[') && text.ends_with(']')) {
+        return Some("json");
+    }
+    if text.contains("def ") && text.contains(':') {
+        return Some("python");
+    }
+    if text.contains("fn main(") || text.contains("pub fn ") || text.contains("let mut ") {
+        return Some("rust");
+    }
+    if text.contains("function ") || (text.contains("const ") && text.contains(" = ") && text.contains(';')) {
+        return Some("javascript");
+    }
+    if text.contains("import ") && (text.contains("from '") || text.contains("from \"")) {
+        return Some("typescript");
+    }
+    if text.contains("class ") || text.contains("struct ") || text.contains("import ") || text.contains("#include <") {
+        if text.contains("#include <") {
+            return Some("cpp");
+        }
+        return Some("clike");
+    }
+    None
+}
+
+fn render_text_preview(text: &str) -> (String, bool) {
+    if is_markdown(text) {
+        let parser = pulldown_cmark::Parser::new(text).map(|event| {
+            match event {
+                pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
+                    pulldown_cmark::Event::Text(html)
+                }
+                other => other,
+            }
+        });
+        let mut html_output = String::new();
+        pulldown_cmark::html::push_html(&mut html_output, parser);
+        let preview_html = format!(r#"<div class="markdown-rendered">{}</div>"#, html_output);
+        (preview_html, false)
+    } else if let Some(lang) = detect_language(text) {
+        let escaped = crate::util::html_escape(text);
+        let preview_html = format!(
+            r#"<div class="code-container"><pre><code class="language-{}">{}</code></pre></div>"#,
+            lang, escaped
+        );
+        (preview_html, true)
+    } else {
+        let escaped = crate::util::html_escape(text);
+        let preview_html = format!(
+            r#"<div class="code-container" style="padding: 24px;"><pre style="white-space: pre-wrap; font-family: var(--font); font-size: 14px; line-height: 1.5; color: var(--fg);">{}</pre></div>"#,
+            escaped
+        );
+        (preview_html, false)
+    }
+}
+
 fn is_code_file(path: &StdPath, mime: &str) -> bool {
     if mime.starts_with("text/") && !mime.contains("markdown") && !mime.contains("html") {
         return true;
@@ -1074,7 +1294,14 @@ async fn generate_preview_html(
         ))
     } else if mime.contains("markdown") {
         let content = tokio::fs::read_to_string(path).await?;
-        let parser = pulldown_cmark::Parser::new(&content);
+        let parser = pulldown_cmark::Parser::new(&content).map(|event| {
+            match event {
+                pulldown_cmark::Event::Html(html) | pulldown_cmark::Event::InlineHtml(html) => {
+                    pulldown_cmark::Event::Text(html)
+                }
+                other => other,
+            }
+        });
         let mut html_output = String::new();
         pulldown_cmark::html::push_html(&mut html_output, parser);
         Ok(format!(
@@ -1187,6 +1414,8 @@ mod tests {
             limit: None,
             active_downloads: Mutex::new(HashSet::new()),
             expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
         });
 
         let app = test_router(state);
@@ -1236,6 +1465,8 @@ mod tests {
             limit: Some(1),
             active_downloads: Mutex::new(HashSet::new()),
             expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
         });
 
         let app = test_router(state);
@@ -1276,6 +1507,8 @@ mod tests {
             limit: None,
             active_downloads: Mutex::new(HashSet::new()),
             expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
         });
 
         let app = test_router(state);
@@ -1321,6 +1554,8 @@ mod tests {
             limit: Some(1),
             active_downloads: Mutex::new(HashSet::new()),
             expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
         });
 
         let app = test_router(state);
@@ -1384,6 +1619,8 @@ mod tests {
                 limit: Some(1),
                 active_downloads: Mutex::new(HashSet::new()),
                 expired: std::sync::atomic::AtomicBool::new(false),
+                session_time: chrono::Local::now(),
+                expire_str: None,
             });
             let app = test_router(state);
 
@@ -1418,6 +1655,8 @@ mod tests {
                 limit: Some(2),
                 active_downloads: Mutex::new(HashSet::new()),
                 expired: std::sync::atomic::AtomicBool::new(false),
+                session_time: chrono::Local::now(),
+                expire_str: None,
             });
             let app = test_router(state.clone());
 
@@ -1470,6 +1709,8 @@ mod tests {
                 limit: Some(1),
                 active_downloads: Mutex::new(HashSet::new()),
                 expired: std::sync::atomic::AtomicBool::new(false),
+                session_time: chrono::Local::now(),
+                expire_str: None,
             });
             let app = test_router(state);
 
@@ -1521,6 +1762,8 @@ mod tests {
                 limit: Some(1),
                 active_downloads: Mutex::new(HashSet::new()),
                 expired: std::sync::atomic::AtomicBool::new(false),
+                session_time: chrono::Local::now(),
+                expire_str: None,
             });
             let app = test_router(state);
 
@@ -1549,5 +1792,117 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(temp_file);
+    }
+
+    #[tokio::test]
+    async fn test_text_target_routes() {
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::watch::channel(false);
+        let state = Arc::new(ServerState {
+            target: ShareTarget::Text("Hello, world!".to_string()),
+            auth: AuthConfig::new(None),
+            shutdown_tx,
+            limit: None,
+            active_downloads: Mutex::new(HashSet::new()),
+            expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
+        });
+        let app = test_router(state);
+
+        let req = Request::builder()
+            .uri("/")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(body_str.contains("Shared Text"));
+        assert!(body_str.contains("Hello, world!"));
+        assert!(body_str.contains("metadata-grid"));
+
+        let req_raw = Request::builder().uri("/raw").body(Body::empty()).unwrap();
+        let response_raw = app.oneshot(req_raw).await.unwrap();
+        assert_eq!(response_raw.status(), StatusCode::OK);
+        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&body_raw), "Hello, world!");
+    }
+
+    #[tokio::test]
+    async fn test_url_target_routes() {
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::watch::channel(false);
+        let state = Arc::new(ServerState {
+            target: ShareTarget::Url("https://example.com/some/path".to_string()),
+            auth: AuthConfig::new(None),
+            shutdown_tx,
+            limit: None,
+            active_downloads: Mutex::new(HashSet::new()),
+            expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
+        });
+        let app = test_router(state);
+
+        let req = Request::builder()
+            .uri("/")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        if status != StatusCode::OK {
+            println!("TEST STATUS CODE: {:?}", status);
+            println!("TEST BODY: {}", body_str);
+        }
+        assert_eq!(status, StatusCode::OK);
+        assert!(body_str.contains("Shared Link"));
+        assert!(body_str.contains("https://example.com/some/path"));
+    }
+
+    #[tokio::test]
+    async fn test_image_target_routes() {
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::watch::channel(false);
+        let fake_png = vec![1, 2, 3, 4];
+        let state = Arc::new(ServerState {
+            target: ShareTarget::Image(fake_png.clone()),
+            auth: AuthConfig::new(None),
+            shutdown_tx,
+            limit: None,
+            active_downloads: Mutex::new(HashSet::new()),
+            expired: std::sync::atomic::AtomicBool::new(false),
+            session_time: chrono::Local::now(),
+            expire_str: None,
+        });
+        let app = test_router(state);
+
+        let req = Request::builder()
+            .uri("/")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(body_str.contains("Shared Image"));
+        assert!(body_str.contains("<img src=\"/raw\""));
+
+        let req_raw = Request::builder().uri("/raw").body(Body::empty()).unwrap();
+        let response_raw = app.oneshot(req_raw).await.unwrap();
+        assert_eq!(response_raw.status(), StatusCode::OK);
+        let body_raw = axum::body::to_bytes(response_raw.into_body(), 1024).await.unwrap();
+        assert_eq!(body_raw.to_vec(), fake_png);
+    }
+
+    #[tokio::test]
+    async fn test_markdown_sanitization() {
+        let text_with_script = "Hello\n<script>alert(1)</script>\nworld";
+        let (preview_html, _) = render_text_preview(text_with_script);
+        // Script should be converted to text or escaped, and not rendered as a raw executable element!
+        assert!(!preview_html.contains("<script>alert(1)</script>"));
+        assert!(preview_html.contains("&lt;script&gt;alert(1)&lt;/script&gt;") || preview_html.contains("alert(1)"));
     }
 }

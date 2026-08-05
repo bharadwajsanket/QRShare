@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{Write, IsTerminal};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -26,29 +26,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Parse command line arguments
     let cli = cli::Cli::parse();
 
-    // 2. Resolve share target type
-    let target = if cli.target.starts_with("http://") || cli.target.starts_with("https://") {
-        ShareTarget::Url(cli.target.clone())
-    } else {
-        let path = PathBuf::from(&cli.target);
-        if !path.exists() {
-            eprintln!("Error: Target path '{}' does not exist.", cli.target);
+    // 3. Resolve share target type
+    let target = if let Some(ref text) = cli.text {
+        ShareTarget::Text(text.clone())
+    } else if cli.clipboard {
+        match arboard::Clipboard::new() {
+            Ok(mut cb) => {
+                if let Ok(img) = cb.get_image() {
+                    match encode_image_to_png(&img) {
+                        Ok(png_bytes) => ShareTarget::Image(png_bytes),
+                        Err(e) => {
+                            eprintln!("Error: Failed to encode clipboard image: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else if let Ok(text) = cb.get_text() {
+                    ShareTarget::Text(text)
+                } else {
+                    eprintln!("Error: Clipboard does not contain supported content (text or image).");
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to open clipboard: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else if !std::io::stdin().is_terminal() {
+        let mut buffer = String::new();
+        if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer) {
+            eprintln!("Error: Failed to read stdin: {}", e);
             std::process::exit(1);
         }
-        if path.is_file() {
-            ShareTarget::File(path)
-        } else if path.is_dir() {
-            ShareTarget::Folder(path)
+        ShareTarget::Text(buffer)
+    } else if let Some(ref target_str) = cli.target {
+        if target_str.starts_with("http://") || target_str.starts_with("https://") {
+            ShareTarget::Url(target_str.clone())
         } else {
-            eprintln!(
-                "Error: Target path '{}' is neither a file nor a directory.",
-                cli.target
-            );
-            std::process::exit(1);
+            let path = PathBuf::from(target_str);
+            if !path.exists() {
+                eprintln!("Error: Target path '{}' does not exist.", target_str);
+                std::process::exit(1);
+            }
+            if path.is_file() {
+                ShareTarget::File(path)
+            } else if path.is_dir() {
+                ShareTarget::Folder(path)
+            } else {
+                eprintln!(
+                    "Error: Target path '{}' is neither a file nor a directory.",
+                    target_str
+                );
+                std::process::exit(1);
+            }
         }
+    } else {
+        eprintln!("Error: No share target specified.");
+        eprintln!("Please specify a file/folder/URL to share, or use --text, --clipboard, or pipe from stdin.");
+        eprintln!("See 'qrshare --help' for details.");
+        std::process::exit(1);
     };
 
-    // 3. Handle password protection
+    // 4. Handle password protection
     let mut password = cli.password.clone();
     if let Some(ref p) = password {
         if p == "__prompt__" {
@@ -67,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let auth = AuthConfig::new(password);
 
-    // 4. Set up graceful shutdown channel
+    // 5. Set up graceful shutdown channel
     let (shutdown_tx, _shutdown_rx) = watch::channel(false);
 
     // 6. Download limit parameters
@@ -81,6 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Get current local time for session sharing timestamp
+    let session_time = chrono::Local::now();
+
     // Instantiate state early so expiration can access it
     let state = Arc::new(ServerState {
         target: target.clone(),
@@ -89,16 +131,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         limit,
         active_downloads: Mutex::new(HashSet::new()),
         expired: std::sync::atomic::AtomicBool::new(false),
+        session_time,
+        expire_str: cli.expire.clone(),
     });
 
-    // 5. Expiration timer
+    // 7. Expiration timer
     if let Some(ref duration_str) = cli.expire {
         let duration = match cli::parse_duration(duration_str) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("Error parsing expiration: {}.", e);
-                eprintln!("Please specify a duration using format like '10m', '1h', or '30s'.");
-                eprintln!("Example:\n    --expire 15m");
                 std::process::exit(1);
             }
         };
@@ -119,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 7. Resolve network host and port
+    // 8. Resolve network host and port
     let host = if let Some(ref h) = cli.host {
         h.clone()
     } else {
@@ -131,7 +173,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => {
             if let Some(p) = cli.port {
                 eprintln!("Error: Could not bind to port {}.", p);
-                eprintln!("Try another port using:\n    --port {}", p + 1);
             } else {
                 eprintln!("Error allocating port: {}", e);
             }
@@ -139,11 +180,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 8. Print startup information
+    // 9. Attempt mDNS registration for qrshare.local
+    let _mdns_daemon = if host != "127.0.0.1" {
+        match mdns_sd::ServiceDaemon::new() {
+            Ok(daemon) => {
+                let service_type = "_http._tcp.local.";
+                let instance_name = "qrshare";
+                let host_name = "qrshare.local.";
+                let properties = std::collections::HashMap::new();
+                match mdns_sd::ServiceInfo::new(
+                    service_type,
+                    instance_name,
+                    host_name,
+                    &host,
+                    port,
+                    properties,
+                ) {
+                    Ok(info) => {
+                        let info = info.enable_addr_auto();
+                        let _ = daemon.register(info);
+                        Some(daemon)
+                    }
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
     let server_url = format!("http://{}:{}", host, port);
 
-    // get_dir_size may walk a large directory tree; run it off the async executor
-    // so it cannot block Tokio's runtime thread during startup.
+    // 10. Print startup information
     let target_for_banner = target.clone();
     let (banner_host, banner_port) = (host.clone(), port);
     let has_pass = cli.password.is_some();
@@ -167,13 +236,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n────────────────────────────\n");
     println!("📡 Waiting for connections...");
 
-    // 9. Optionally open local browser
+    // 11. Optionally open local browser
     if cli.open {
         open_browser(&server_url);
     }
 
-    // 10. Start listening
-
+    // 12. Start listening
     let addr: SocketAddr = format!("0.0.0.0:{}", port)
         .parse()
         .map_err(|e| AppError::Internal(format!("Invalid socket address: {}", e)))?;
@@ -219,6 +287,15 @@ fn print_startup_banner(
                 .unwrap_or("unknown");
             ("Folder", dirname.to_string())
         }
+        ShareTarget::Text(text) => {
+            let preview = if text.len() > 30 {
+                format!("{}...", text.chars().take(27).collect::<String>())
+            } else {
+                text.clone()
+            };
+            ("Text", preview.replace('\n', " "))
+        }
+        ShareTarget::Image(_) => ("Clipboard Image", "PNG Image".to_string()),
     };
 
     let size_val = match target {
@@ -230,7 +307,9 @@ fn print_startup_banner(
             let bytes = get_dir_size(path);
             util::format_size(bytes)
         }
-        ShareTarget::Url(_) => "N/A (Redirect Link)".to_string(),
+        ShareTarget::Url(_) => "N/A (Preview Link)".to_string(),
+        ShareTarget::Text(text) => util::format_size(text.len() as u64),
+        ShareTarget::Image(bytes) => util::format_size(bytes.len() as u64),
     };
 
     let limit_desc = match limit {
@@ -246,13 +325,23 @@ fn print_startup_banner(
         "Open Access (LAN Only)"
     };
 
-    let lines = vec![
+    let mut lines = vec![
         format!("{:<10} {}", target_label, target_value),
         format!("{:<10} {}", "Size", size_val),
         format!("{:<10} {}", "Address", server_url),
-        format!("{:<10} {}", "Security", security_desc),
-        format!("{:<10} {}", "Limit", limit_desc),
     ];
+
+    if host != "127.0.0.1" {
+        let dns_url = if port == 80 {
+            "http://qrshare.local".to_string()
+        } else {
+            format!("http://qrshare.local:{}", port)
+        };
+        lines.push(format!("{:<10} {}", "Local DNS", dns_url));
+    }
+
+    lines.push(format!("{:<10} {}", "Security", security_desc));
+    lines.push(format!("{:<10} {}", "Limit", limit_desc));
 
     let content_width = 54;
 
@@ -295,4 +384,16 @@ fn get_dir_size(path: &std::path::Path) -> u64 {
         }
     }
     size
+}
+
+fn encode_image_to_png(img: &arboard::ImageData) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, img.width as u32, img.height as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(&img.bytes)?;
+    }
+    Ok(png_bytes)
 }

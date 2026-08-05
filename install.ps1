@@ -35,7 +35,7 @@ if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq 
 
 # 3. Resolve Version Tag
 Write-Host "Fetching latest version tag..." -ForegroundColor Gray
-$latestTag = "v2.5.4" # Fallback
+$latestTag = "v3.5.4" # Fallback
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $releasesUrl = "https://api.github.com/repos/$repo/releases/latest"

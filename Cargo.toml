@@ -1,6 +1,6 @@
 [package]
 name = "qrshare"
-version = "2.5.4"
+version = "3.5.4"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Sanket Bharadwaj"]
@@ -33,3 +33,7 @@ futures-util = "0.3"
 uuid = { version = "1.8", features = ["v4"] }
 http = "1.1"
 http-body = "1.1"
+arboard = "3.4"
+png = "0.17"
+chrono = "0.4"
+mdns-sd = "0.11"

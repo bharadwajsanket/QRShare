@@ -49,21 +49,16 @@ $ qrshare ./report.pdf --limit 1
 
 ---
 
-## What's New in v2.5.4
+## What's New in v3.5.4
 
-QRShare v2.5.4 is a major UI/UX release. The Rust backend, server performance, and download logic are completely unchanged. Everything new is in the browser experience delivered to the receiver.
+QRShare v3.5.4 extends QRShare from a file-sharing utility into a browser-first content-sharing utility while preserving its original philosophy.
 
-### ✦ Completely Redesigned Browser Interface
-
-The receiver-facing web UI has been rebuilt from scratch. The design is inspired by Apple, Arc Browser, Linear, and Vercel — premium, minimal, and elegant.
-
-| Before (v1.5.4) | After (v2.5.4) |
-|---|---|
-| Generic dark card | Refined glass card with subtle depth |
-| Black/white buttons | Purple (`#7C3AED`) primary accent throughout |
-| Plain metadata text | Compact inline type + size chips |
-| Generic error codes | Friendly titles with per-status icons |
-| System font | Inter with system font fallback |
+### ✦ Supported Share Types
+- **Files & Folders**: Download files or folder ZIPs with beautiful visual style.
+- **URLs**: Shared links are presented on a landing page with "Open Website", "Copy Link", and "Share" actions (never redirects automatically).
+- **Text & stdin**: Share plain text snippet directly via `--text`, stdin pipe, or clipboard. Text features full Markdown rendering and automatic syntax highlighting.
+- **Clipboard**: Automatically check clipboard contents to share images or text seamlessly.
+- **mDNS exposure**: Expose the sharing session at `http://qrshare.local:<port>` for ease of access.
 
 ### ✦ Automatic Light & Dark Theme
 

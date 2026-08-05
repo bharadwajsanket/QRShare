@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [3.5.4] — 2026-08-05
+
+### Added
+- Plain text sharing support via `--text <TEXT>` option with markdown rendering and syntax highlighting
+- Clipboard sharing support via `--clipboard` option to automatically share clipboard text or images
+- stdin pipe support (`cat file.md | qrshare`) to easily share text input
+- Dedicated landing page for shared URLs (replaces automatic redirect)
+- Option to select terminal QR code themes globally via `--theme <THEME>`
+- mDNS responder to automatically advertise `http://qrshare.local:<port>` on the local network
+
+### Changed
+- Refactored templates to share consistent header, title, timestamp, and brand footer
+- Upgraded clipboard copy logic to Clipboard API with highly reliable legacy fallback
+- Upgraded share button to use Web Share API with copy URL fallback (no extra dialogs)
+
 ## [2.5.4] — 2026-08-03
 
 ### Added
