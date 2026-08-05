@@ -360,12 +360,14 @@ async fn get_root(
             .into_response(),
         ShareTarget::Text(text) => {
             let (preview_html, is_code) = render_text_preview(text);
+            let download_filename = state.session_time.format("qrshare-%Y-%m-%d-%H%M.txt").to_string();
             (
                 jar,
                 Html(templates::render_text_page(
                     text,
                     &preview_html,
                     is_code,
+                    &download_filename,
                     &state.session_time,
                     state.expire_str.as_deref(),
                     state.limit,
@@ -413,7 +415,7 @@ async fn get_root(
         }
         ShareTarget::Folder(dir) => {
             let breadcrumbs = build_breadcrumbs("");
-            let items = compile_directory_items(dir, "").await?;
+            let (items, item_count) = compile_directory_items(dir, "").await?;
             let dir_name = dir.file_name().unwrap_or_default().to_string_lossy();
 
             (
@@ -422,6 +424,7 @@ async fn get_root(
                     &dir_name,
                     &breadcrumbs,
                     &items,
+                    item_count,
                     "/zip",
                     &state.session_time,
                     state.expire_str.as_deref(),
@@ -474,7 +477,7 @@ async fn get_subpath(
 
     let res = if resolved.is_dir() {
         let breadcrumbs = build_breadcrumbs(&subpath);
-        let items = compile_directory_items(base_dir, &subpath).await?;
+        let (items, item_count) = compile_directory_items(base_dir, &subpath).await?;
         let dir_name = resolved.file_name().unwrap_or_default().to_string_lossy();
         let zip_url = format!(
             "/zip/{}",
@@ -487,6 +490,7 @@ async fn get_subpath(
                 &dir_name,
                 &breadcrumbs,
                 &items,
+                item_count,
                 &zip_url,
                 &state.session_time,
                 state.expire_str.as_deref(),
@@ -991,7 +995,7 @@ fn build_breadcrumbs(relative_path: &str) -> String {
     html
 }
 
-async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<String, AppError> {
+async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<(String, usize), AppError> {
     let target_dir = safe_resolve_path(base_dir, subpath)?;
     let mut html = String::new();
 
@@ -1017,6 +1021,8 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<St
             name,
         });
     }
+
+    let total_count = info_list.len();
 
     // Sort entries: directories first, then alphabetically
     info_list.sort_by(|a, b| {
@@ -1084,6 +1090,7 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<St
                     </div>
                     <div class="item-right">
                         <span class="item-size">-</span>
+                        <svg class="item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                     </div>
                    </a>"#,
                 encoded_link,
@@ -1100,6 +1107,7 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<St
                     </div>
                     <div class="item-right">
                         <span class="item-size">{}</span>
+                        <svg class="item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                     </div>
                    </a>"#,
                 encoded_link,
@@ -1109,7 +1117,7 @@ async fn compile_directory_items(base_dir: &StdPath, subpath: &str) -> Result<St
         }
     }
 
-    Ok(html)
+    Ok((html, total_count))
 }
 
 fn is_markdown(text: &str) -> bool {
@@ -1172,7 +1180,7 @@ fn render_text_preview(text: &str) -> (String, bool) {
     } else {
         let escaped = crate::util::html_escape(text);
         let preview_html = format!(
-            r#"<div class="code-container" style="padding: 24px;"><pre style="white-space: pre-wrap; font-family: var(--font); font-size: 14px; line-height: 1.5; color: var(--fg);">{}</pre></div>"#,
+            r#"<div class="plain-text-preview"><pre>{}</pre></div>"#,
             escaped
         );
         (preview_html, false)
@@ -1212,12 +1220,12 @@ async fn generate_preview_html(
 ) -> Result<String, AppError> {
     if mime.starts_with("image/") {
         Ok(format!(
-            r#"<img src="{}" class="preview-media" alt="Image preview">"#,
+            r#"<img src="{}" class="preview-media" alt="Image preview" loading="lazy" data-zoomable>"#,
             raw_url
         ))
     } else if mime.starts_with("video/") {
         Ok(format!(
-            r#"<video src="{}" class="preview-media" controls autoplay muted playsinline></video>"#,
+            r#"<video src="{}" class="preview-media" controls autoplay muted playsinline loop></video>"#,
             raw_url
         ))
     } else if mime.starts_with("audio/") {

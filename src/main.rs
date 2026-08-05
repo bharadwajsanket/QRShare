@@ -49,6 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 eprintln!("Error: Failed to open clipboard: {}", e);
+                #[cfg(target_os = "linux")]
+                eprintln!("Note: Sharing from clipboard on Linux requires a running X11 or Wayland session.");
                 std::process::exit(1);
             }
         }
