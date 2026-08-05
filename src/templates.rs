@@ -133,6 +133,7 @@ fn brand_footer() -> &'static str {
 
 // ─── Master Page Layout ───────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_page_layout(
     browser_title: &str,
     icon_svg: &str,
@@ -248,13 +249,17 @@ pub fn build_metadata(
     downloads: usize,
 ) -> String {
     let time_str = session_time.format("%I:%M %p").to_string();
-    let time_str = if time_str.starts_with('0') { &time_str[1..] } else { &time_str };
+    let time_str = time_str.strip_prefix('0').unwrap_or(&time_str);
     let shared_val = format!("{} \u{00b7} {}", session_time.format("%b %d, %Y"), time_str);
 
     let expiration_val = if let Some(exp) = expire_str {
         exp.to_string()
     } else if let Some(lim) = limit {
-        if lim == 1 { "1 download".to_string() } else { format!("{} downloads", lim) }
+        if lim == 1 {
+            "1 download".to_string()
+        } else {
+            format!("{} downloads", lim)
+        }
     } else {
         "Never".to_string()
     };
@@ -306,7 +311,11 @@ pub fn render_password_page(error_msg: Option<&str>) -> String {
         ""
     };
 
-    let page_head = head("Protected Share \u{2014} QRShare", "body { justify-content: center; }", "");
+    let page_head = head(
+        "Protected Share \u{2014} QRShare",
+        "body { justify-content: center; }",
+        "",
+    );
 
     format!(
         r#"<!DOCTYPE html>
@@ -357,6 +366,7 @@ pub fn render_password_page(error_msg: Option<&str>) -> String {
 
 // ─── File page ────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_file_page(
     name: &str,
     size_str: &str,
@@ -413,6 +423,7 @@ pub fn render_file_page(
 
 // ─── Folder page ──────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_folder_page(
     dir_name: &str,
     breadcrumbs_html: &str,
@@ -490,7 +501,13 @@ pub fn render_url_page(
     let url_esc = crate::util::html_escape(url);
 
     // Extract domain for display and browser title
-    let domain = url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("URL");
+    let domain = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("URL");
     let domain_esc = crate::util::html_escape(domain);
     let browser_title = format!("{} \u{2022} QRShare", domain);
 
@@ -553,6 +570,7 @@ pub fn render_url_page(
 
 // ─── Text Page ────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_text_page(
     text: &str,
     preview_html: &str,
@@ -627,7 +645,13 @@ pub fn render_clipboard_image_page(
 
     let preview_html = r#"<img src="/raw" class="preview-media" alt="Clipboard image" loading="lazy" data-zoomable>"#.to_string();
 
-    let metadata_html = build_metadata("Image (Clipboard)", session_time, expire_str, limit, downloads);
+    let metadata_html = build_metadata(
+        "Image (Clipboard)",
+        session_time,
+        expire_str,
+        limit,
+        downloads,
+    );
 
     let actions_html = r#"<a href="/raw?download=1" class="btn btn-primary" download="qrshare-clip.png" aria-label="Download clipboard image">
                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
